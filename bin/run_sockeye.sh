@@ -1,0 +1,19 @@
+python -m sockeye.train --source ../data/preproc/train.surf.en \
+       --target ../data/preproc/train.output.en \
+       --source-graphs ../data/preproc/train.triples.en \
+       --validation-source ../data/preproc/dev.surf.en \
+       --validation-target ../data/preproc/dev.output.en \
+       --val-source-graphs ../data/preproc/dev.triples.en \
+       --use-cpu \
+       --use-gcn \
+       --skip-rnn \
+       --gcn-num-layers 1 \
+       --output amr_model \
+       --batch-size 2 \
+       --rnn-num-hidden 32 \
+       --num-embed 32 \
+       --gcn-num-hidden 16 \
+       --checkpoint-frequency 50 \
+       --source-vocab ../data/preproc/node.json \
+       --edge-vocab ../data/preproc/edge.json \
+       --overwrite-output
