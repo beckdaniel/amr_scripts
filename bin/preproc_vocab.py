@@ -17,7 +17,7 @@ def create_vocab(args):
 
     # Get frequencies first
     freqs = Counter()
-    for instance in instances:
+    for i, instance in enumerate(instances):
         triples = instance.strip('\n').split(' ')
         for triple in triples:
             # strip ')'

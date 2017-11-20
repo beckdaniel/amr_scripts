@@ -54,15 +54,16 @@ def simplify(tokens, v2c):
 
 ##########################
 
-def get_name(c):
+def get_name(v, v2c):
     try:
         # Remove sense info from concepts if present
+        c = v2c[v]
         if re.search(SENSE_PATTERN, c._name):
             return c._name[:-3]
         else:
             return c._name
     except: # constants: remove quotes if present
-        r = str(c).lower()
+        r = str(v).lower()
         if r[0] == '"' and r[-1] == '"':
             return r[1:-1]
         else:
@@ -100,16 +101,20 @@ def main(args):
                 # Triples mode for graph2seq
 
                 # Get concepts and generate IDs
-                c_ids = {}
-                rev_c_ids = []
+                v_ids = {}
+                rev_v_ids = []
                 for concept in graph.concepts():
-                    c = concept[1]
-                    c_ids[c] = str(len(c_ids))
-                    rev_c_ids.append(c)
+                    v = concept[0]
+                    #c = concept[1]
+                    #c_ids[c] = str(len(c_ids))
+                    #rev_c_ids.append(c)
+                    v_ids[v] = str(len(v_ids))
+                    rev_v_ids.append(v)
+
                 # Add constant nodes as well
                 for constant in graph.constants():
-                    c_ids[constant] = str(len(c_ids))
-                    rev_c_ids.append(constant)
+                    v_ids[constant] = str(len(v_ids))
+                    rev_v_ids.append(constant)
 
                 # Triples
                 triples = []
@@ -120,28 +125,37 @@ def main(args):
                         continue
                     predicate = triple[1]
                     try:
-                        c1 = v2c[triple[0]]
+                        v1 = triple[0]
+                        c1 = v2c[v1]                        
                     except: # If it is not a concept it is a constant:
-                        c1 = triple[0]
+                        #c1 = triple[0]
+                        v1 = triple[0]
                     try:
-                        c2 = v2c[triple[2]]
+                        v2 = triple[2]
+                        c2 = v2c[v2]
                     except:
-                        c2 = triple[2]
-                    triples.append((c_ids[c1], c_ids[c2], predicate))
+                        #c2 = triple[2]
+                        v2 = triple[2]
+                    #triples.append((c_ids[c1], c_ids[c2], predicate))
+                    triples.append((v_ids[v1], v_ids[v2], predicate))
                     if args.add_reverse:
                         # Add reversed edges if requested
                         if predicate.endswith('-of'):
                             rev_predicate = predicate[:-3]
                         else:
                             rev_predicate = predicate + '-of'
-                        triples.append((c_ids[c2], c_ids[c1], rev_predicate))
+                        #triples.append((c_ids[c2], c_ids[c1], rev_predicate))
+                        triples.append((v_ids[v2], v_ids[v1], rev_predicate))
                         
                 # Add self-loops
-                for c in c_ids:
-                    triples.append((c_ids[c], c_ids[c], 'self'))
+                #for c in c_ids:
+                #    triples.append((c_ids[c], c_ids[c], 'self'))
+                for v in v_ids:
+                    triples.append((v_ids[v], v_ids[v], 'self'))
 
                 # Print concepts/constants and triples
-                cs = [get_name(c) for c in rev_c_ids]
+                #cs = [get_name(c) for c in rev_c_ids]
+                cs = [get_name(v, v2c) for v in rev_v_ids]
                 out.write(' '.join(cs) + '\n')
                 triples_out.write(' '.join(['(' + ','.join(adj) + ')' for adj in triples]) + '\n')
 
