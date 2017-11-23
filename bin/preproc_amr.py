@@ -71,6 +71,46 @@ def get_name(v, v2c):
 
 ##########################
 
+def get_nodes(graph):
+    v_ids = {}
+    rev_v_ids = []
+    for concept in graph.concepts():
+        v = concept[0]
+        #c = concept[1]
+        #c_ids[c] = str(len(c_ids))
+        #rev_c_ids.append(c)
+        v_ids[v] = str(len(v_ids))
+        rev_v_ids.append(v)
+        
+    # Add constant nodes as well
+    for constant in graph.constants():
+        v_ids[constant] = str(len(v_ids))
+        rev_v_ids.append(constant)
+    return v_ids, rev_v_ids
+        
+##########################
+
+def get_nodes2(graph):
+    v_ids = {}
+    rev_v_ids = []
+    filtered = [t for t in graph.triples() if type(t[2]) != Var]
+    #v2cs = [t for t in filtered if t[1] == ':instance-of']
+    #constants = [t[2] for t in filtered if t[1] != ':instance-of']
+    for triple in filtered:
+        # Concepts: we map Vars
+        if triple[1] == ':instance-of':
+            v = triple[0]
+        # Constants: we map the actual constant
+        else:
+            v = triple[2]
+        if v not in v_ids:
+            # Need this check so we do not add double constants
+            v_ids[v] = str(len(v_ids))
+            rev_v_ids.append(v)            
+    return v_ids, rev_v_ids
+        
+##########################
+
 def main(args):
 
     # First, let's read the graphs and surface forms
@@ -99,22 +139,9 @@ def main(args):
 
             elif args.mode == 'GRAPH':
                 # Triples mode for graph2seq
-
+                #import ipdb; ipdb.set_trace()
                 # Get concepts and generate IDs
-                v_ids = {}
-                rev_v_ids = []
-                for concept in graph.concepts():
-                    v = concept[0]
-                    #c = concept[1]
-                    #c_ids[c] = str(len(c_ids))
-                    #rev_c_ids.append(c)
-                    v_ids[v] = str(len(v_ids))
-                    rev_v_ids.append(v)
-
-                # Add constant nodes as well
-                for constant in graph.constants():
-                    v_ids[constant] = str(len(v_ids))
-                    rev_v_ids.append(constant)
+                v_ids, rev_v_ids = get_nodes2(graph)
 
                 # Triples
                 triples = []
