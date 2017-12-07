@@ -12,12 +12,13 @@ Options:
 
 """
 import sys
-from amr import AMR, Var
+from amr import AMR, Var, Concept
 import re
 import json
 import argparse
 from collections import Counter
 
+from ne_clusters import NE_CLUSTER
 
 
 ##########################
@@ -111,6 +112,166 @@ def get_nodes2(graph):
         
 ##########################
 
+def get_triples(graph, v_ids, rev_v_ids):
+    triples = []
+    for triple in graph.triples():
+        # Ignore top and instance-of
+        # TODO: remove wikification
+        if triple[1] == ':top' or triple[1] == ':instance-of':
+            continue
+        predicate = triple[1]
+        try:
+            v1 = triple[0]
+            c1 = v2c[v1]                        
+        except: # If it is not a concept it is a constant:
+            v1 = triple[0]
+        try:
+            v2 = triple[2]
+            c2 = v2c[v2]
+        except:
+            v2 = triple[2]
+        triples.append((v_ids[v1], v_ids[v2], predicate))
+        if args.add_reverse:
+            # Add reversed edges if requested
+            if predicate.endswith('-of'):
+                rev_predicate = predicate[:-3]
+            else:
+                rev_predicate = predicate + '-of'
+                triples.append((v_ids[v2], v_ids[v1], rev_predicate))
+                        
+    # Add self-loops
+    for v in v_ids:
+        triples.append((v_ids[v], v_ids[v], 'self'))
+    return triples
+
+##########################
+
+def anonymize(graph, surf):
+    v2c = graph.var2concept()
+    # Get triples with :name predicate
+    triples = graph.triples()
+    output_triples = triples.copy()
+    name_triples = [t for t in triples if t[1] == ':name']
+    anon_id = 0
+    anon_map = {}
+    anon_surf = surf.split()
+    for name_t in name_triples:
+        conc = name_t[0]
+        name = name_t[2]
+
+        # update concept name
+        clusterized = NE_CLUSTER.setdefault(v2c[conc]._name, 'other')
+        #new_conc_name = v2c[conc]._name + '_' + str(anon_id)
+        new_conc_name = clusterized + '_' + str(anon_id)
+        anon_id += 1
+        v2c[conc] = Concept(new_conc_name)
+
+        # get :op predicates, sorted by indexes
+        op_tuples = [t for t in triples if t[0] == name and t[1] != ':instance-of']
+        op_tuples = sorted(op_tuples, key=lambda x: x[1])
+
+        # update mapping, removing quotes
+        anon_map[new_conc_name] = ' '.join([str(op[2])[1:-1] for op in op_tuples])
+        
+        # update surface form
+        # sometimes an :op is not aligned (implicit), therefore the if statement
+        alignments = [graph.alignments()[t] for t in op_tuples if t in graph.alignments()]
+        align_indexes = [a.split('.')[1] for a in alignments]
+        # need to do this because some :ops are many-to-1
+        indexes = []
+        for a_index in align_indexes:
+            if ',' in a_index:
+                for i in a_index.split(','):
+                    indexes.append(int(i))
+            else:
+                indexes.append(int(a_index))    
+        #align_indexes = [int(alignments[t].split('.')[1]) for t in op_tuples if '~' in alignments[t]]
+        for i, index in enumerate(indexes):
+            if i == 0:
+                anon_surf[index] = new_conc_name
+            else:
+                anon_surf[index] = ''
+
+
+        # remove triples from graph
+        for triple in triples:
+            if triple[0] == name:
+                try:
+                    output_triples.remove(triple)
+                except ValueError:
+                    # Sometimes we have multiple NEs refering to the same graph,
+                    # which means we already removed the graph in the first instance
+                    pass
+            #if triple[0] == conc and triple[1] != ':instance-of':
+            elif triple[0] == conc and triple[1] == ':name' and triple[2] == name:
+                output_triples.remove(triple)
+
+    anon_surf = ' '.join(anon_surf).lower().split() # remove extra spaces
+    return output_triples, v2c, anon_surf, anon_map
+
+##########################
+
+def get_line_graph(graph, surf, anon=False):
+    triples = []
+    nodes = {}
+    rev_nodes = []
+    uniq = 0
+    nodes_to_print = []
+    graph_triples = graph.triples()
+    if anon:
+        # preprocess triples and surface
+        #import ipdb; ipdb.set_trace()
+        graph_triples, v2c, anon_surf, anon_map = anonymize(graph, surf)
+        anon_surf = ' '.join(anon_surf)
+        #import ipdb; ipdb.set_trace()
+    else:
+        graph_triples = graph.triples()
+        v2c = graph.var2concept()
+        anon_surf = surf
+        anon_map = None
+    for triple in graph_triples:
+        src, edge, tgt = triple
+        # ignore these nodes
+        if edge == ':top' or edge == ':instance-of' or edge == ':wiki':
+            continue
+        # process nodes, populating the ids
+        if src not in nodes:
+            nodes[src] = len(nodes)
+            rev_nodes.append(src)
+            src_id = nodes[src]
+            triples.append((src_id, src_id, 'self'))
+            nodes_to_print.append(get_name(src, v2c))
+        edge_uniq = edge + '_' + str(uniq)
+        uniq += 1
+        nodes[edge_uniq] = len(nodes)
+        rev_nodes.append(edge_uniq)
+        edge_id = nodes[edge_uniq]
+        triples.append((edge_id, edge_id, 'self'))
+        nodes_to_print.append(edge)
+        if tgt not in nodes:
+            nodes[tgt] = len(nodes)
+            rev_nodes.append(tgt)
+            tgt_id = nodes[tgt]
+            triples.append((tgt_id, tgt_id, 'self'))
+            nodes_to_print.append(get_name(tgt, v2c))
+        # process triples
+        src_id = nodes[src]
+        edge_id = nodes[edge_uniq]
+        tgt_id = nodes[tgt]
+        triples.append((src_id, edge_id, 'default'))
+        triples.append((edge_id, src_id, 'reverse'))
+        triples.append((edge_id, tgt_id, 'default'))
+        triples.append((tgt_id, edge_id, 'reverse'))
+
+    if nodes_to_print == []:
+        # single node graph, first triple is ":top", second triple is the node
+        triple = graph.triples()[1]
+        nodes_to_print.append(get_name(triple[0], v2c))
+        triples.append((0, 0, 'self'))
+    return nodes_to_print, triples, anon_surf, anon_map
+
+##########################
+
 def main(args):
 
     # First, let's read the graphs and surface forms
@@ -123,12 +284,15 @@ def main(args):
         triples_out = open(args.triples_output, 'w')
         
     # Iterate
+    anon_surfs = []
+    anon_maps = []
+    i = 0
     with open(args.output, 'w') as out, open(args.output_surface, 'w') as surf_out:
         for amr, surf in zip(amrs, surfs):
             graph = AMR(amr, surf.split())
             
             # Get variable: concept map for reentrancies
-            v2c = graph.var2concept()
+            #v2c = graph.var2concept()
 
             if args.mode == 'LIN':
                 # Linearisation mode for seq2seq
@@ -144,41 +308,7 @@ def main(args):
                 v_ids, rev_v_ids = get_nodes2(graph)
 
                 # Triples
-                triples = []
-                for triple in graph.triples():
-                    # Ignore top and instance-of
-                    # TODO: remove wikification
-                    if triple[1] == ':top' or triple[1] == ':instance-of':
-                        continue
-                    predicate = triple[1]
-                    try:
-                        v1 = triple[0]
-                        c1 = v2c[v1]                        
-                    except: # If it is not a concept it is a constant:
-                        #c1 = triple[0]
-                        v1 = triple[0]
-                    try:
-                        v2 = triple[2]
-                        c2 = v2c[v2]
-                    except:
-                        #c2 = triple[2]
-                        v2 = triple[2]
-                    #triples.append((c_ids[c1], c_ids[c2], predicate))
-                    triples.append((v_ids[v1], v_ids[v2], predicate))
-                    if args.add_reverse:
-                        # Add reversed edges if requested
-                        if predicate.endswith('-of'):
-                            rev_predicate = predicate[:-3]
-                        else:
-                            rev_predicate = predicate + '-of'
-                        #triples.append((c_ids[c2], c_ids[c1], rev_predicate))
-                        triples.append((v_ids[v2], v_ids[v1], rev_predicate))
-                        
-                # Add self-loops
-                #for c in c_ids:
-                #    triples.append((c_ids[c], c_ids[c], 'self'))
-                for v in v_ids:
-                    triples.append((v_ids[v], v_ids[v], 'self'))
+                triples = get_triples(graph, v_ids, rev_v_ids)
 
                 # Print concepts/constants and triples
                 #cs = [get_name(c) for c in rev_c_ids]
@@ -186,8 +316,29 @@ def main(args):
                 out.write(' '.join(cs) + '\n')
                 triples_out.write(' '.join(['(' + ','.join(adj) + ')' for adj in triples]) + '\n')
 
+            elif args.mode == 'LINE_GRAPH':
+                # Similar to GRAPH, but with edges as extra nodes
+                #import ipdb; ipdb.set_trace()
+                print(i)
+                i += 1
+                #if i == 574:
+                #    import ipdb; ipdb.set_trace()
+                nodes, triples, anon_surf, anon_map = get_line_graph(graph, surf, anon=args.anon)
+                out.write(' '.join(nodes) + '\n')
+                triples_out.write(' '.join(['(%d,%d,%s)' % adj for adj in triples]) + '\n')
+                #surf = ' '.join(new_surf)
+                anon_surfs.append(anon_surf)
+                anon_maps.append(json.dumps(anon_map))
+                
             # Process the surface form
             surf_out.write(surf.lower())
+    if args.anon:
+        with open(args.anon_surface, 'w') as f:
+            for anon_surf in anon_surfs:
+                f.write(anon_surf + '\n')
+        with open(args.map_output, 'w') as f:
+            for anon_map in anon_maps:
+                f.write(anon_map + '\n')
 
 ###########################
             
@@ -200,16 +351,18 @@ if __name__ == "__main__":
     parser.add_argument('output', type=str, help='output file, either AMR or concept list')
     parser.add_argument('output_surface', type=str, help='output surface file')
     parser.add_argument('--mode', type=str, default='GRAPH', help='preprocessing mode',
-                        choices=['GRAPH','LIN'])
+                        choices=['GRAPH','LIN','LINE_GRAPH'])
     parser.add_argument('--anon', action='store_true', help='anonymise NEs and dates')
     parser.add_argument('--add-reverse', action='store_true', help='whether to add reverse edges in the graph output')
     parser.add_argument('--triples-output', type=str, default=None, help='triples output for graph2seq')
-    parser.add_argument('--align-output', type=str, default=None, help='alignment output file, if using anonymisation')
+    parser.add_argument('--map-output', type=str, default=None, help='mapping output file, if using anonymisation')
+    parser.add_argument('--anon-surface', type=str, default=None, help='anonymized surface output file, if using anonymisation')
 
     args = parser.parse_args()
 
     assert (args.triples_output is not None) or (args.mode != 'GRAPH'), "Need triples output for graph mode"
-    assert (args.align_output is not None) or (not args.anon), "Need alignment output for anon mode"
+    assert (args.map_output is not None) or (not args.anon), "Need map output for anon mode"
+    assert (args.anon_surface is not None) or (not args.anon), "Need anonymized surface output for anon mode"
 
     SENSE_PATTERN = re.compile('-[0-9][0-9]$')
     
