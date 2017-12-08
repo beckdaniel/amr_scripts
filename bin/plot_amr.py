@@ -15,8 +15,8 @@ def gen_dot(nodes, triples):
         new_nodes.append(new_node)
     for triple in triples.split():
         src, tgt, label = triple[1:-1].split(',')
-        print((src, tgt, label))
-        print((node_ids[int(src)], node_ids[int(tgt)]))
+        #print((src, tgt, label))
+        #print((node_ids[int(src)], node_ids[int(tgt)]))
         #dot.edge(new_nodes[int(src)] + '_' + src,
         #         new_nodes[int(tgt)] + '_' + tgt)
         dot.edge(new_nodes[int(src)],

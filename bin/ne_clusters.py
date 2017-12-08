@@ -91,3 +91,14 @@ NE_CLUSTER = {'person': 'person',
               'zoo': 'location',
               'amusement-park': 'location'
               }
+
+QUANT_CLUSTER = set(['monetary-quantity', 'distance-quantity', 'area-quantity', 'volume-quantity',
+                     'temporal-quantity', 'frequency-quantity', 'speed-quantity',
+                     'acceleration-quantity', 'mass-quantity', 'force-quantity',
+                     'pressure-quantity', 'energy-quantity', 'power-quantity', 'charge-quantity',
+                     'potential-quantity', 'resistance-quantity', 'inductance-quantity',
+                     'magnetic-field-quantity', 'magnetic-flux-quantity', 'radiation-quantity',
+                     'fuel-consumption-quantity', 'numerical-quantity', 'information-quantity',
+                     'concentration-quantity', 'catalytic-activity-quantity',
+                     'acidity-quantity', 'seismic-quantity', 'temperature-quantity', 'mass-quantity-c',
+                     'monetary-quantity-c', 'seismic-quantity-c', 'temporal-quantity-c'])

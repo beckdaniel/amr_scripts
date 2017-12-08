@@ -12,13 +12,14 @@ Options:
 
 """
 import sys
-from amr import AMR, Var, Concept
+from amr import AMR, Var, Concept, AMRNumber
 import re
 import json
 import argparse
 from collections import Counter
+from copy import deepcopy
 
-from ne_clusters import NE_CLUSTER
+from ne_clusters import NE_CLUSTER, QUANT_CLUSTER
 
 
 ##########################
@@ -147,23 +148,35 @@ def get_triples(graph, v_ids, rev_v_ids):
 ##########################
 
 def anonymize(graph, surf):
-    v2c = graph.var2concept()
+    
     # Get triples with :name predicate
     triples = graph.triples()
-    output_triples = triples.copy()
-    name_triples = [t for t in triples if t[1] == ':name']
-    anon_id = 0
+    new_graph = deepcopy(graph)
+    #output_triples = deepcopy(triples)
+    output_triples = new_graph.triples()
+    v2c = new_graph.var2concept()
+    
+    anon_ids = {'person': 0,
+                'organization': 0,
+                'location': 0,
+                'other': 0,
+                'quantity': 0}
     anon_map = {}
     anon_surf = surf.split()
+
+    #################
+    # Anonymize NEs. We replace the node with a clustered concept and delete
+    # corresponding subgraphs, including wiki.
+    name_triples = [t for t in triples if t[1] == ':name']
     for name_t in name_triples:
         conc = name_t[0]
         name = name_t[2]
 
         # update concept name
         clusterized = NE_CLUSTER.setdefault(v2c[conc]._name, 'other')
-        #new_conc_name = v2c[conc]._name + '_' + str(anon_id)
-        new_conc_name = clusterized + '_' + str(anon_id)
-        anon_id += 1
+        cluster_id = anon_ids[clusterized]
+        new_conc_name = clusterized + '_' + str(cluster_id)
+        anon_ids[clusterized] += 1
         v2c[conc] = Concept(new_conc_name)
 
         # get :op predicates, sorted by indexes
@@ -192,7 +205,6 @@ def anonymize(graph, surf):
             else:
                 anon_surf[index] = ''
 
-
         # remove triples from graph
         for triple in triples:
             if triple[0] == name:
@@ -205,6 +217,85 @@ def anonymize(graph, surf):
             #if triple[0] == conc and triple[1] != ':instance-of':
             elif triple[0] == conc and triple[1] == ':name' and triple[2] == name:
                 output_triples.remove(triple)
+
+    ################
+    # Anonymize quantities. Similar procedure with NEs but without deleting subgraphs.
+    # There are three different cases that requires different treatments
+    quant_triples = [t for t in triples if t[1] == ':quant']
+    for quant_t in quant_triples:
+        conc = quant_t[0]
+        quant = quant_t[2]
+
+        # 1st case: :quant links to another concept. In this case we ignore it.
+        # TODO: sometimes the quantity appears inside as an :opX predicate. We do
+        # not deal with these cases here.
+        if type(quant) == Var:
+            continue
+
+        # 2nd case: :quant links a non-quantity concept to a number. In this case
+        # we replace the number with an anonymization token. To do this, we ...
+        elif v2c[conc]._name not in QUANT_CLUSTER:
+            if quant_t in graph.alignments():
+                a_index = graph.alignments()[quant_t].split('.')[1]
+                indexes = []
+                if ',' in a_index:
+                    for i in a_index.split(','):
+                        indexes.append(int(i))
+                else:
+                    indexes.append(int(a_index))
+            new_quant_name = 'quantity_' + str(anon_ids['quantity'])
+            anon_ids['quantity'] += 1
+            anon_map[new_quant_name] = quant._value
+            try:
+                output_t_index = output_triples.index(quant_t)
+                output_triples[output_t_index][2]._value = new_quant_name
+            except ValueError:
+                # Constant already updated, can ignore
+                pass
+            if quant_t in graph.alignments():
+                for i, index in enumerate(indexes):
+                    if i == 0:
+                        anon_surf[index] = new_quant_name
+                    else:
+                        anon_surf[index] = ''
+            #import ipdb; ipdb.set_trace()
+
+        # 3rd case: :quant links a quantity concept to a number. In this case
+        # we replace the *entire tuple* with an anonymization token.
+        else:
+            # Sometimes quantities are not aligned
+            if quant_t in graph.alignments():
+                a_index = graph.alignments()[quant_t].split('.')[1]
+                indexes = []
+                if ',' in a_index:
+                    for i in a_index.split(','):
+                        indexes.append(int(i))
+                else:
+                    indexes.append(int(a_index)) 
+            #output_t_index = output_triples.index(quant_t)
+            new_quant_name = 'quantity_' + str(anon_ids['quantity'])
+            anon_ids['quantity'] += 1
+            anon_map[new_quant_name] = quant._value
+            #output_triples[output_t_index][2]._value = new_quant_name
+            if quant_t in graph.alignments():
+                for i, index in enumerate(indexes):
+                    if i == 0:
+                        anon_surf[index] = new_quant_name
+                    else:
+                        anon_surf[index] = ''
+
+            # update concept name and remove triples
+            v2c[conc] = Concept(new_quant_name)
+            #print(quant_t)
+            #print(output_triples)
+            try:
+                output_triples.remove(quant_t)
+            except:
+                #import ipdb; ipdb.set_trace()
+                for triple in output_triples:
+                    if triple[0] == quant_t[0] and triple[1] == quant_t[1]:
+                        output_triples.remove(triple)
+                
 
     anon_surf = ' '.join(anon_surf).lower().split() # remove extra spaces
     return output_triples, v2c, anon_surf, anon_map
