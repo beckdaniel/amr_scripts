@@ -147,26 +147,11 @@ def get_triples(graph, v_ids, rev_v_ids):
 
 ##########################
 
-def anonymize(graph, surf):
-    
-    # Get triples with :name predicate
-    triples = graph.triples()
-    new_graph = deepcopy(graph)
-    #output_triples = deepcopy(triples)
-    output_triples = new_graph.triples()
-    v2c = new_graph.var2concept()
-    
-    anon_ids = {'person': 0,
-                'organization': 0,
-                'location': 0,
-                'other': 0,
-                'quantity': 0}
-    anon_map = {}
-    anon_surf = surf.split()
-
-    #################
-    # Anonymize NEs. We replace the node with a clustered concept and delete
-    # corresponding subgraphs, including wiki.
+def anonymize_nes(graph, triples, output_triples, v2c, anon_ids, anon_map, anon_surf):
+    """
+    Anonymize NEs. We replace the node with a clustered concept and delete
+    corresponding subgraphs, including wiki.
+    """
     name_triples = [t for t in triples if t[1] == ':name']
     for name_t in name_triples:
         conc = name_t[0]
@@ -217,10 +202,16 @@ def anonymize(graph, surf):
             #if triple[0] == conc and triple[1] != ':instance-of':
             elif triple[0] == conc and triple[1] == ':name' and triple[2] == name:
                 output_triples.remove(triple)
+                
+    return output_triples, anon_ids, anon_map, anon_surf
 
-    ################
-    # Anonymize quantities. Similar procedure with NEs but without deleting subgraphs.
-    # There are three different cases that requires different treatments
+###############
+
+def anonymize_quants(graph, triples, output_triples, v2c, anon_ids, anon_map, anon_surf):
+    """
+    Anonymize quantities. Similar procedure with NEs but without deleting subgraphs.
+    There are three different cases that requires different treatments
+    """
     quant_triples = [t for t in triples if t[1] == ':quant']
     for quant_t in quant_triples:
         conc = quant_t[0]
@@ -258,7 +249,6 @@ def anonymize(graph, surf):
                         anon_surf[index] = new_quant_name
                     else:
                         anon_surf[index] = ''
-            #import ipdb; ipdb.set_trace()
 
         # 3rd case: :quant links a quantity concept to a number. In this case
         # we replace the *entire tuple* with an anonymization token.
@@ -272,11 +262,9 @@ def anonymize(graph, surf):
                         indexes.append(int(i))
                 else:
                     indexes.append(int(a_index)) 
-            #output_t_index = output_triples.index(quant_t)
             new_quant_name = 'quantity_' + str(anon_ids['quantity'])
             anon_ids['quantity'] += 1
             anon_map[new_quant_name] = quant._value
-            #output_triples[output_t_index][2]._value = new_quant_name
             if quant_t in graph.alignments():
                 for i, index in enumerate(indexes):
                     if i == 0:
@@ -286,17 +274,48 @@ def anonymize(graph, surf):
 
             # update concept name and remove triples
             v2c[conc] = Concept(new_quant_name)
-            #print(quant_t)
-            #print(output_triples)
             try:
                 output_triples.remove(quant_t)
             except:
-                #import ipdb; ipdb.set_trace()
                 for triple in output_triples:
                     if triple[0] == quant_t[0] and triple[1] == quant_t[1]:
                         output_triples.remove(triple)
-                
 
+    return output_triples, anon_ids, anon_map, anon_surf
+
+##########################
+
+def anonymize(graph, surf):
+    
+    # Get triples with :name predicate
+    triples = graph.triples()
+    new_graph = deepcopy(graph)
+    #output_triples = deepcopy(triples)
+    output_triples = new_graph.triples()
+    v2c = new_graph.var2concept()
+    
+    anon_ids = {'person': 0,
+                'organization': 0,
+                'location': 0,
+                'other': 0,
+                'quantity': 0}
+    anon_map = {}
+    anon_surf = surf.split()
+
+    output_triples, anon_ids, anon_map, anon_surf = anonymize_nes(graph,
+                                                                  triples,
+                                                                  output_triples,
+                                                                  v2c,
+                                                                  anon_ids,
+                                                                  anon_map,
+                                                                  anon_surf)
+    output_triples, anon_ids, anon_map, anon_surf = anonymize_quants(graph,
+                                                                     triples,
+                                                                     output_triples,
+                                                                     v2c,
+                                                                     anon_ids,
+                                                                     anon_map,
+                                                                     anon_surf)
     anon_surf = ' '.join(anon_surf).lower().split() # remove extra spaces
     return output_triples, v2c, anon_surf, anon_map
 
