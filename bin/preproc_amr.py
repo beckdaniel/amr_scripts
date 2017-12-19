@@ -21,6 +21,26 @@ from copy import deepcopy
 
 from ne_clusters import NE_CLUSTER, QUANT_CLUSTER
 
+##########################
+
+class AMRTree(object):
+    """
+    Used for printing only
+    """
+    def __init__(self, label):
+        self._label = label
+        self._children = []
+
+    def __str__(self):
+        if len(self.children) > 0:
+            str_chs = ' '.join([str(ch) for ch in self._children])
+            if len(self.children) > 1:
+                return self._label + ' ( ' + str_chs + ' ) '
+            else:
+                return self._label + ' ' + str_chs
+        else:
+            return self._label
+        
 
 ##########################
 
@@ -189,20 +209,103 @@ def anonymize_nes(graph, triples, output_triples, v2c, anon_ids, anon_map, anon_
                 anon_surf[index] = new_conc_name
             else:
                 anon_surf[index] = ''
-
-        # remove triples from graph
-        for triple in triples:
-            if triple[0] == name:
-                try:
-                    output_triples.remove(triple)
-                except ValueError:
-                    # Sometimes we have multiple NEs refering to the same graph,
-                    # which means we already removed the graph in the first instance
-                    pass
-            #if triple[0] == conc and triple[1] != ':instance-of':
-            elif triple[0] == conc and triple[1] == ':name' and triple[2] == name:
-                output_triples.remove(triple)
                 
+        # update the instance triple and remove other triples from graph
+        for triple in triples:
+            try:
+                if triple[0] == name:
+                    try:
+                        output_triples.remove(triple)
+                    except ValueError:
+                        # Sometimes we have multiple NEs refering to the same graph,
+                        # which means we already removed the graph in the first instance
+                        pass
+                elif triple[0] == conc and triple[1] == ':name' and triple[2] == name:
+                    output_triples.remove(triple)
+                elif triple[0] == conc and triple[1] == ':wiki':
+                    output_triples.remove(triple)                
+                elif triple[0] == conc and triple[1] == ':instance-of':
+                    output_t_index = output_triples.index(triple)
+                    output_triples[output_t_index]= (triple[0], triple[1], Concept(new_conc_name))
+            except ValueError:
+                # weird things
+                #import ipdb; ipdb.set_trace()
+                pass
+                
+                
+    return output_triples, anon_ids, anon_map, anon_surf
+
+###############
+
+def anonymize_dates(graph, triples, output_triples, v2c, anon_ids, anon_map, anon_surf):
+    """
+    Anonymize dates. We use different tokens for days, months and years. The surface side
+    also has different tokens for months and days if they are numbers or names.
+    """
+    date_vars = [t[0] for t in triples if t[2] == Concept('date-entity')]
+    #date_vars = [v for v in v2c if v2c[v]._name == 'date-entity']
+    for date_var in date_vars:
+
+        # Get triples where this var appears
+        date_triples = [t for t in triples if t[0] == date_var]
+
+        # Anonymize days, months and years. Ignore others for now.
+        date_triples = sorted(date_triples, key=lambda x: x[1])
+        for date_t in date_triples:
+            if date_t[1] in [':day', ':month', ':year']:
+
+                # Get alignment for surface form
+                try:
+                    alignment = graph.alignments()[date_t]
+                except:
+                    # Alignment bug, ignore node and move to the next one
+                    continue
+                a_index = alignment.split('.')[1]
+                indexes = []
+                if ',' in a_index:
+                    for i in a_index.split(','):
+                        indexes.append(int(i))
+                else:
+                    indexes.append(int(a_index))
+
+                stripped = date_t[1][1:]
+                new_conc_name = stripped + '_' + str(anon_ids[stripped])
+                anon_ids[stripped] += 1
+                anon_map[new_conc_name] = str(date_t[2])
+
+
+                # Update the corresponding triple
+                output_t_index = output_triples.index(date_t)
+                output_triples[output_t_index]= (date_t[0], date_t[1], Concept(new_conc_name))
+                    
+                # Update surface form
+                for i, index in enumerate(indexes):
+                    if i == 0:
+                        curr_token = anon_surf[index]
+                        if curr_token.isdigit() or 'day' in new_conc_name or 'year' in new_conc_name:
+                            anon_surf[index] = new_conc_name + '_number'
+                        else:
+                            if '_' in curr_token:
+                                # token was already preprocessed due to weird double alignment
+                                try:
+                                    next_index = indexes[i+1]
+                                except IndexError:
+                                    # revisiting previous token, ignore and move to the next one
+                                    #import ipdb; ipdb.set_trace()
+                                    print(curr_token)
+                                    continue
+                                next_token = anon_surf[next_index]
+                                #print(next_token)
+                                if next_token.isdigit() or 'day' in new_conc_name or 'year' in new_conc_name:
+                                    anon_surf[next_index] = new_conc_name + '_number'
+                                else:
+                                    anon_surf[next_index] = new_conc_name + '_name'
+                            else:
+                                #print(curr_token)
+                                anon_surf[index] = new_conc_name + '_name'
+                    #else:
+                    #    anon_surf[index] = ''
+
     return output_triples, anon_ids, anon_map, anon_surf
 
 ###############
@@ -280,6 +383,10 @@ def anonymize_quants(graph, triples, output_triples, v2c, anon_ids, anon_map, an
                 for triple in output_triples:
                     if triple[0] == quant_t[0] and triple[1] == quant_t[1]:
                         output_triples.remove(triple)
+            for triple in triples:
+                if triple[0] == conc and triple[1] == ':instance-of':
+                    output_t_index = output_triples.index(triple)
+                    output_triples[output_t_index]= (triple[0], triple[1], Concept(new_quant_name))
 
     return output_triples, anon_ids, anon_map, anon_surf
 
@@ -298,10 +405,19 @@ def anonymize(graph, surf):
                 'organization': 0,
                 'location': 0,
                 'other': 0,
-                'quantity': 0}
+                'quantity': 0,
+                'day': 0,
+                'month': 0,
+                'year': 0}
     anon_map = {}
     anon_surf = surf.split()
-
+    output_triples, anon_ids, anon_map, anon_surf = anonymize_dates(graph,
+                                                                    triples,
+                                                                    output_triples,
+                                                                    v2c,
+                                                                    anon_ids,
+                                                                    anon_map,
+                                                                    anon_surf)
     output_triples, anon_ids, anon_map, anon_surf = anonymize_nes(graph,
                                                                   triples,
                                                                   output_triples,
@@ -316,6 +432,7 @@ def anonymize(graph, surf):
                                                                      anon_ids,
                                                                      anon_map,
                                                                      anon_surf)
+
     anon_surf = ' '.join(anon_surf).lower().split() # remove extra spaces
     return output_triples, v2c, anon_surf, anon_map
 
@@ -333,7 +450,7 @@ def get_line_graph(graph, surf, anon=False):
         #import ipdb; ipdb.set_trace()
         graph_triples, v2c, anon_surf, anon_map = anonymize(graph, surf)
         anon_surf = ' '.join(anon_surf)
-        #import ipdb; ipdb.set_trace()
+        import ipdb; ipdb.set_trace()
     else:
         graph_triples = graph.triples()
         v2c = graph.var2concept()
@@ -380,6 +497,64 @@ def get_line_graph(graph, surf, anon=False):
         triples.append((0, 0, 'self'))
     return nodes_to_print, triples, anon_surf, anon_map
 
+##########################
+
+def print_simplified(graph_triples, v2c):
+    """
+    Given a modified graph, prints the linearised, simplified version.
+    Taken from AMR code
+    """       
+    s = []
+    stack = []
+    instance_fulfilled = None
+    concept_stack_depth = {None: 0} # size of the stack when the :instance-of triple was encountered for the variable
+
+    # Traverse the graph and build initial string
+    for h, r, d in graph_triples + [(None,None,None)]:
+        if r==':top':
+            s.append('(')
+            s.append(get_name(d, v2c))
+            stack.append((h, r, d))
+            instance_fulfilled = False
+        elif r==':instance-of':
+            instance_fulfilled = True
+            concept_stack_depth[h] = len(stack)
+        else:
+            while len(stack)>concept_stack_depth[h]:
+                h2, r2, d2 = stack.pop()
+                if instance_fulfilled is False:
+                    s.pop()
+                    s.pop()
+                    s.append(get_name(d2, v2c))
+                else:
+                    s.append(')')
+                instance_fulfilled = None
+            if d is not None:
+                s.append(r)
+                s.append('(')
+                s.append(get_name(d, v2c))
+                stack.append((h, r, d))
+                instance_fulfilled = False
+
+    # Remove extra parenthesis when there's one token only between them
+    final_s = []
+    skip = False
+    for i, token in enumerate(s[:-2]):
+        if token == '(':
+            if s[i+2] == ')':
+                skip = True
+            if not skip:
+                final_s.append(token)
+        elif token == ')':
+            if not skip:
+                final_s.append(token)
+            skip = False
+        else:
+            final_s.append(token)
+    # remove extra set of parenthesis
+    final_s.append(s[-2])
+    print(s)
+    return final_s[1:]
 ##########################
 
 def main(args):
@@ -431,7 +606,7 @@ def main(args):
                 #import ipdb; ipdb.set_trace()
                 print(i)
                 i += 1
-                #if i == 574:
+                #if i == 98:
                 #    import ipdb; ipdb.set_trace()
                 nodes, triples, anon_surf, anon_map = get_line_graph(graph, surf, anon=args.anon)
                 out.write(' '.join(nodes) + '\n')

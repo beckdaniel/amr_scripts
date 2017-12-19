@@ -102,3 +102,4 @@ QUANT_CLUSTER = set(['monetary-quantity', 'distance-quantity', 'area-quantity', 
                      'concentration-quantity', 'catalytic-activity-quantity',
                      'acidity-quantity', 'seismic-quantity', 'temperature-quantity', 'mass-quantity-c',
                      'monetary-quantity-c', 'seismic-quantity-c', 'temporal-quantity-c'])
+
