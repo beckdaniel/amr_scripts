@@ -450,12 +450,15 @@ def get_line_graph(graph, surf, anon=False):
         #import ipdb; ipdb.set_trace()
         graph_triples, v2c, anon_surf, anon_map = anonymize(graph, surf)
         anon_surf = ' '.join(anon_surf)
-        import ipdb; ipdb.set_trace()
+        #import ipdb; ipdb.set_trace()
+        anon_surf_scope = print_simplified(graph_triples, v2c)
+        anon_surf_scope = ' '.join(anon_surf_scope)
     else:
         graph_triples = graph.triples()
         v2c = graph.var2concept()
         anon_surf = surf
         anon_map = None
+        anon_surf_scope = None
     for triple in graph_triples:
         src, edge, tgt = triple
         # ignore these nodes
@@ -495,14 +498,14 @@ def get_line_graph(graph, surf, anon=False):
         triple = graph.triples()[1]
         nodes_to_print.append(get_name(triple[0], v2c))
         triples.append((0, 0, 'self'))
-    return nodes_to_print, triples, anon_surf, anon_map
+    return nodes_to_print, triples, anon_surf, anon_map, anon_surf_scope
 
 ##########################
 
 def print_simplified(graph_triples, v2c):
     """
-    Given a modified graph, prints the linearised, simplified version.
-    Taken from AMR code
+    Given a modified graph, prints the linearised, simplified version with scope markers.
+    Taken from AMR code.
     """       
     s = []
     stack = []
@@ -536,6 +539,7 @@ def print_simplified(graph_triples, v2c):
                 stack.append((h, r, d))
                 instance_fulfilled = False
 
+    #import ipdb; ipdb.set_trace()
     # Remove extra parenthesis when there's one token only between them
     final_s = []
     skip = False
@@ -553,7 +557,10 @@ def print_simplified(graph_triples, v2c):
             final_s.append(token)
     # remove extra set of parenthesis
     final_s.append(s[-2])
-    print(s)
+    if len(s) == 3:
+        # corner case: single node with two parenthesis
+        return s[1:2]
+    #print(s)
     return final_s[1:]
 ##########################
 
@@ -571,6 +578,7 @@ def main(args):
     # Iterate
     anon_surfs = []
     anon_maps = []
+    anon_surfs_scope = []
     i = 0
     with open(args.output, 'w') as out, open(args.output_surface, 'w') as surf_out:
         for amr, surf in zip(amrs, surfs):
@@ -608,12 +616,13 @@ def main(args):
                 i += 1
                 #if i == 98:
                 #    import ipdb; ipdb.set_trace()
-                nodes, triples, anon_surf, anon_map = get_line_graph(graph, surf, anon=args.anon)
+                nodes, triples, anon_surf, anon_map, anon_surf_scope = get_line_graph(graph, surf, anon=args.anon)
                 out.write(' '.join(nodes) + '\n')
                 triples_out.write(' '.join(['(%d,%d,%s)' % adj for adj in triples]) + '\n')
                 #surf = ' '.join(new_surf)
                 anon_surfs.append(anon_surf)
                 anon_maps.append(json.dumps(anon_map))
+                anon_surfs_scope.append(anon_surf_scope)
                 
             # Process the surface form
             surf_out.write(surf.lower())
@@ -624,6 +633,9 @@ def main(args):
         with open(args.map_output, 'w') as f:
             for anon_map in anon_maps:
                 f.write(anon_map + '\n')
+        with open(args.anon_surface_scope, 'w') as f:
+            for anon_surf_scope in anon_surfs_scope:
+                f.write(anon_surf_scope + '\n')
 
 ###########################
             
@@ -642,6 +654,7 @@ if __name__ == "__main__":
     parser.add_argument('--triples-output', type=str, default=None, help='triples output for graph2seq')
     parser.add_argument('--map-output', type=str, default=None, help='mapping output file, if using anonymisation')
     parser.add_argument('--anon-surface', type=str, default=None, help='anonymized surface output file, if using anonymisation')
+    parser.add_argument('--anon-surface-scope', type=str, default=None, help='anonymized surface file, with scope marking, used in baseline seq2seq models')
 
     args = parser.parse_args()
 
