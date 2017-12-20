@@ -1,5 +1,7 @@
 import argparse
 import json
+import calendar
+import sys
 
 
 def replace_unk(out_tokens, in_tokens, att_matrix):
@@ -22,6 +24,21 @@ def main(args):
             for tok in tokens:
                 if tok in anon_map:
                     replaced.append(anon_map[tok])
+                elif '_' in tok:
+                    subtoks = tok.split('_')
+                    anon_tok = '_'.join(subtoks[:-1])
+                    if subtoks[0] in ['day', 'month', 'year'] and anon_tok in anon_map:
+                        if subtoks[-1] == 'number':
+                            replaced.append(anon_map[anon_tok])
+                        elif subtoks[-1] == 'name' and subtoks[0] == 'month':
+                            number = anon_map[anon_tok]
+                            replaced.append(calendar.month_name[int(number)])
+                        else:
+                            print("PANIC")
+                            print(tok)
+                            sys.exit(0)
+                    else:
+                        replaced.append(tok)
                 else:
                     replaced.append(tok)
             out_file.write(' '.join(replaced) + '\n')
